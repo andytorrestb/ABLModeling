@@ -1,0 +1,26 @@
+{
+  "simulation": {
+    "reynolds_list": [100000, 1000000, 10000000],
+    "ref_length_list": [14, 28],
+    "n_time_steps": 20,
+    "output_interval": 5,
+    "vel_video_fps": 20,
+    "vort_video_fps": 20
+  },
+  "physical": {
+    "L_phy": 70,
+    "nu_phy": 0.0000156
+  },
+  "domain": {
+    "mult": 5,
+    "maximal_velocity": 0.1,
+    "initial_velocity": [0.1, 0, 0]
+  },
+  "geometry": {
+    "hull_multiplier": 5,
+    "back_multiplier": 2,
+    "nose_slope": 0.1667,
+    "box_height_start": 0.7,
+    "box_height_end": 1.2
+  }
+}
