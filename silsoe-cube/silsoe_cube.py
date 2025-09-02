@@ -182,7 +182,7 @@ def timeloop(timeSteps, bh, dh, kernel):
         dh.run_kernel(kernel)
         dh.swap("src", "dst")
 
-# @profile
+@profile
 def run_simulation(reynolds_number, ref_length, cfg):
 
     # Step 1) Create output directory for specific configuration
@@ -258,12 +258,22 @@ def run_simulation(reynolds_number, ref_length, cfg):
     inflow = UBB(config.initial_velocity)
     outflow = ExtrapolationOutflow(stencil[4], method)
     wall = NoSlip("wall")
+    # Free-slip boundaries require the stencil and a normal direction per face.
+    # Create one instance per axis-aligned face with its outward normal.
+    freeSlip_N = FreeSlip(method.stencil, normal_direction=(0, 1, 0), name="freeSlip_N")   # +Y (North)
+    freeSlip_S = FreeSlip(method.stencil, normal_direction=(0, -1, 0), name="freeSlip_S")  # -Y (South)
+    freeSlip_T = FreeSlip(method.stencil, normal_direction=(0, 0, 1), name="freeSlip_T")   # +Z (Top)
 
     bh.set_boundary(inflow, slice_from_direction('W', dim))
     bh.set_boundary(outflow, slice_from_direction('E', dim))
-    for direction in ('N', 'S'):
-        bh.set_boundary(wall, slice_from_direction(direction, dim))
 
+    # Apply free-slip on North, South, and Top faces
+    bh.set_boundary(freeSlip_N, slice_from_direction('N', dim))
+    bh.set_boundary(freeSlip_S, slice_from_direction('S', dim))
+    bh.set_boundary(freeSlip_T, slice_from_direction('T', dim))
+
+    # Apply no-slip to obstacle and floor.
+    bh.set_boundary(wall, slice_from_direction('B', dim))
     bh.set_boundary(NoSlip("obstacle"), mask_callback=lambda x, y, z, *_: set_ship(x, y, z, config))
 
     # Step 7) Run the simulation
