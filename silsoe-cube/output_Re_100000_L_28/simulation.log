@@ -1,8 +1,0 @@
-2025-09-01 19:03:36 INFO    __main__ [9751]: Starting case Re=100000 L=28 -> outdir=output_Re_100000_L_28
-2025-09-01 19:03:36 INFO    silsoe_cube [9751]: create_data_handling: RSS after 254.45 MB (Δ 0.00 MB) elapsed 0.006s
-2025-09-01 19:03:39 INFO    silsoe_cube [9751]: add_arrays_and_fill: RSS after 6427.71 MB (Δ 6173.26 MB) elapsed 3.411s
-2025-09-01 19:03:47 INFO    silsoe_cube [9751]: create_lb_model: RSS after 6427.71 MB (Δ 0.00 MB) elapsed 7.490s
-2025-09-01 19:06:56 INFO    silsoe_cube [9751]: kernel_init_compile_and_run: RSS after 6427.71 MB (Δ 0.00 MB) elapsed 48.321s
-2025-09-01 19:15:14 INFO    silsoe_cube [9751]: kernel_update_compile_and_run: RSS after 6427.71 MB (Δ 0.00 MB) elapsed 26.650s
-2025-09-01 19:15:20 INFO    silsoe_cube [9751]: Running simulation for Re=100000, output to output_Re_100000_L_28
-2025-09-01 19:33:11 INFO    silsoe_cube [9751]: main_simulation_loop: RSS after 6526.30 MB (Δ 59.18 MB) elapsed 1071.747s
