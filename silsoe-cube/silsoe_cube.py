@@ -210,7 +210,16 @@ def run_simulation(reynolds_number, ref_length, cfg):
     
     # Step 4) : Initialize data array for the simulation.
     with MemProbe("create_data_handling"):
-        dh = ps.create_data_handling(domain_size=domain_size, periodicity=(False, False))
+        # Choose data handling default target/device based on config
+        dh_target = ps.Target.CPU
+        if getattr(config, 'kernel_target', None) and str(config.kernel_target).lower() == 'gpu':
+            dh_target = ps.Target.GPU
+        dh = ps.create_data_handling(
+            domain_size=domain_size,
+            periodicity=(False, False),
+            default_target=dh_target,
+            device_number=getattr(config, 'gpu_device', None)
+        )
 
     with MemProbe("add_arrays_and_fill"):
         src = dh.add_array('src', values_per_cell=len(stencil), alignment=True)
@@ -239,7 +248,28 @@ def run_simulation(reynolds_number, ref_length, cfg):
     init = pdf_initialization_assignments(method, 1.0, config.initial_velocity, src.center_vector)
 
     with MemProbe("kernel_init_compile_and_run"):
-        ast_init = ps.create_kernel(init, target=dh.default_target)
+        # Allow overriding target via config (simulation.kernel_target)
+        # Accept values: None/"default" -> use dh.default_target; "cpu" -> ps.Target.CPU; "gpu" -> ps.Target.GPU
+        target_override = None
+        try:
+            if getattr(config, 'kernel_target', None):
+                kt = str(config.kernel_target).lower()
+                if kt == 'cpu':
+                    target_override = ps.Target.CPU
+                elif kt == 'gpu':
+                    target_override = ps.Target.GPU
+                # Other targets could be added here when supported
+        except Exception:
+            target_override = None
+
+        # Backend: use CUDA when on GPU, else C
+        backend = ps.Backend.CUDA if (target_override or dh.default_target) == ps.Target.GPU else ps.Backend.C
+
+        ast_init = ps.create_kernel(
+            init,
+            target=(target_override or dh.default_target),
+            backend=backend
+        )
         kernel_init = ast_init.compile()
         dh.run_kernel(kernel_init)
 
@@ -249,7 +279,13 @@ def run_simulation(reynolds_number, ref_length, cfg):
                                 lbm_optimisation=lbm_optimisation)
 
     with MemProbe("kernel_update_compile_and_run"):
-        ast_kernel = ps.create_kernel(update, target=dh.default_target, cpu_openmp=True)
+        backend = ps.Backend.CUDA if (target_override or dh.default_target) == ps.Target.GPU else ps.Backend.C
+        ast_kernel = ps.create_kernel(
+            update,
+            target=(target_override or dh.default_target),
+            backend=backend,
+            cpu_openmp=getattr(config, 'cpu_openmp', False)
+        )
         kernel = ast_kernel.compile()
 
     # Step 6) Set Boundary Conditions

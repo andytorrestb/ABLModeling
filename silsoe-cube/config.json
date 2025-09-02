@@ -1,11 +1,12 @@
 {
   "simulation": {
-    "reynolds_list": [100000, 1000000, 10000000],
+    "reynolds_list": [100000],
     "ref_length_list": [14, 28],
-    "n_time_steps": 20,
+    "n_time_steps": 10,
     "output_interval": 5,
     "vel_video_fps": 20,
-    "vort_video_fps": 20
+    "vort_video_fps": 20,
+    "kernel_target": "CPU"
   },
   "physical": {
     "L_phy": 70,

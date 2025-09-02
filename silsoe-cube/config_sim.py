@@ -49,6 +49,7 @@ class SimulationConfig:
         sim = cfg['simulation']
         dom = cfg['domain']
 
+        # Basic physical and domain parameters
         self.reference_length = reference_length
         self.maximal_velocity = dom['maximal_velocity']
         self.reynolds_number = reynolds_number
@@ -63,10 +64,20 @@ class SimulationConfig:
         )
         self.dim = len(self.domain_size)
 
+        # Simulation controls
         self.n_time_steps = sim['n_time_steps']
         self.output_interval = sim['output_interval']
         self.vel_video_fps = sim['vel_video_fps']
         self.vort_video_fps = sim['vort_video_fps']
 
+        # Optional compute settings (all optional)
+        # simulation.kernel_target: "cpu" | "gpu" | "default"
+        # simulation.cpu_openmp: boolean (CPU only)
+        # simulation.gpu_device: integer device index
+        self.kernel_target = sim.get('kernel_target')
+        self.cpu_openmp = bool(sim.get('cpu_openmp', False))
+        self.gpu_device = sim.get('gpu_device', None)
+
+        # Output directory
         self.outdir = outdir
         os.makedirs(self.outdir, exist_ok=True)
