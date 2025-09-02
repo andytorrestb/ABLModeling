@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 from config_sim import SimulationConfig
 
-from plotting import *
+from postprocessing import *
 
 # def load_config(path):
 #     """Load and validate required keys from JSON config file."""
@@ -320,9 +320,15 @@ def run_simulation(reynolds_number, ref_length, cfg):
         for step in range(1, config.n_time_steps + 1):
             timeloop(1, bh, dh, kernel)
             if step % config.output_interval == 0:
-                # print(f'Timestep {step}')
-                plot_velocity(dh.gather_array('velField'), domain_size, step, config)
-                plot_vorticity_frame(dh.gather_array('velField'), domain_size, step, config)
+                # Gather once and reuse for plotting/saving
+                vel = dh.gather_array('velField')
+                plot_velocity(vel, domain_size, step, config)
+                plot_vorticity_frame(vel, domain_size, step, config)
+                # Save slice data to CSV for later analysis
+                try:
+                    save_velocity_slices_csv(vel, domain_size, step, config)
+                except Exception as e:
+                    logger.warning("CSV slice save failed at step %s: %s", step, e)
 
     total_time = time.time() - t0
     logger.info("Simulation completed in %.2fs", total_time)
