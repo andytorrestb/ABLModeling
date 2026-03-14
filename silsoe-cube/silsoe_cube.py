@@ -140,6 +140,15 @@ def save_video(output_dir, video_filename="output.mp4", fps=10):
 
 
 class LBMSolver:
+    """
+    Main Lattice Boltzmann Method solver class.
+
+    SCIENTIFIC METHODS:
+    - Method: Cumulant LBM (Geier et al., 2015).
+        * Optimizes Galilean invariance.
+        * Eliminates 'ghost modes' common in MRT.
+    - Stencil: D3Q27 (3 Dimensions, 27 Discrete Velocities).
+    """
     def __init__(self, config):
         self.config = config
         self.stencil = LBStencil(Stencil.D3Q27)
