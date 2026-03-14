@@ -194,7 +194,8 @@ def run_simulation(reynolds_number, ref_length, cfg):
     outdir = f"output_Re_{int(reynolds_number):d}_L_{ref_length:d}"
     config = SimulationConfig(reynolds_number, ref_length, outdir, cfg)
 
-    print(f"Running simulation with Re={reynolds_number:.0e}, L={ref_length}, nu={config.kinematic_viscosity:.2e}, U={config.maximal_velocity}")
+    logger.info("Running simulation with Re=%.0e, L=%d, nu=%.2e, U=%s", 
+                reynolds_number, ref_length, config.kinematic_viscosity, config.maximal_velocity)
 
     # Step 2) Defensive memory check
     # Estimate memory: domain_size * arrays * dtype (float64=8 bytes)
@@ -205,10 +206,12 @@ def run_simulation(reynolds_number, ref_length, cfg):
     estimated_mem_gb = n_cells * n_arrays * bytes_per_cell / (1024**3)
     max_mem_gb = 1  # Set your max allowed RAM (GB)
     if estimated_mem_gb > max_mem_gb:
-        print(f"Skipping simulation for L={ref_length}, Re={reynolds_number:.0e}: Estimated memory {estimated_mem_gb:.2f} GB exceeds limit of {max_mem_gb} GB.")
+        logger.warning("Skipping simulation for L=%d, Re=%.0e: Estimated memory %.2f GB exceeds limit of %d GB.", 
+                       ref_length, reynolds_number, estimated_mem_gb, max_mem_gb)
         return
     else:
-        print(f"Memory check passed for L={ref_length}, Re={reynolds_number:.0e}: {estimated_mem_gb:.2f} GB used.")
+        logger.info("Memory check passed for L=%d, Re=%.0e: %.2f GB used.", 
+                    ref_length, reynolds_number, estimated_mem_gb)
 
     # Step 3) Define LBM lattice structure to use
     stencil = LBStencil(Stencil.D3Q27)
