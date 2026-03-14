@@ -1,5 +1,17 @@
 from abc import ABC, abstractmethod
 
+"""
+Coordinate System Definition:
+   Y (Vertical / Wall-normal)
+   ^
+   |    _______ (Cube)
+   |   |       |
+   |___|_______|______> X (Streamwise / Flow direction)
+  /
+ /
+Z (Spanwise / Lateral)
+"""
+
 class GeometryFactory:
     @staticmethod
     def get_geometry(config):

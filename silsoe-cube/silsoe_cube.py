@@ -21,6 +21,39 @@ from geometry import GeometryFactory
 # We only import the function we actually use now
 from postprocessing import save_velocity_slices_npz, compute_slice_indices
 
+# ==================================================================================================
+#                               SCIENTIFIC DOCUMENTATION: UNITS & SCALING
+# ==================================================================================================
+# This simulation operates in LATTICE UNITS (LU), not Physical Units (SI).
+#
+# scaling_concept: "Acoustic Scaling"
+#   - delta_x (lattice spacing) = 1 [LU]
+#   - delta_t (time step)       = 1 [TS]
+#
+# Primary Conversions:
+#   1. Reynolds Number (Re) is non-dimensional and identical in both systems.
+#      Re = (U_phys * L_phys) / nu_phys  ==  (U_lattice * L_lattice) / nu_lattice
+#
+#   2. Velocity (U):
+#      U_lattice = U_phys * (delta_t / delta_x)
+#      *CRITICAL*: To ensure compressibility errors are negligible (Ma < 0.1),
+#      the characteristic lattice velocity (maximal_velocity) should generally be < 0.1.
+#
+#   3. Viscosity (nu):
+#      nu_lattice = (U_lattice * L_lattice) / Re
+#      Relaxation time (tau) corresponds to: nu_lattice = (2*tau - 1) / 6
+#      Ideally, tau should be kept in the range [0.51, ~2.0] for stability.
+#
+#   4. Length (L):
+#      L_lattice = L_phys / delta_x
+#      This is the resolution of the simulation (e.g., "reference_length" in config).
+#
+# For data analysis, convert results back to physical units using the inverse factors:
+#   U_phys = U_lattice * (dx_phys / dt_phys)
+#   L_phys = L_lattice * dx_phys
+#   T_phys = T_lattice * dt_phys
+# ==================================================================================================
+
 # -------------------------
 # Memory probing helper
 # -------------------------

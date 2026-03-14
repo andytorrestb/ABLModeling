@@ -40,14 +40,15 @@ class SimulationConfig:
         geo = cfg.get('geometry', {})
 
         # Basic physical and domain parameters
-        self.reference_length = reference_length
-        self.maximal_velocity = dom['maximal_velocity']
+        self.reference_length = reference_length  # L_lattice (resolution)
+        self.maximal_velocity = dom['maximal_velocity']  # U_lattice (must be < 0.1 for Ma < 0.1)
         self.geometry = geo
         self.boundary_conditions = cfg.get('boundary_conditions', {})
 
         self.reynolds_number = reynolds_number
+        # nu_lattice = (U_lattice * L_lattice) / Re
         self.kinematic_viscosity = (self.reference_length * self.maximal_velocity) / self.reynolds_number
-        self.initial_velocity = tuple(dom['initial_velocity'])
+        self.initial_velocity = tuple(dom['initial_velocity'])  # [ux, uy, uz] in Lattice Units
 
         self.mult = dom['mult']
         self.domain_size = (
