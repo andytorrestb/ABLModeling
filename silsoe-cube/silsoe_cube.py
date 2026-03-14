@@ -298,8 +298,22 @@ def run_simulation(reynolds_number, ref_length, cfg):
     outdir = f"output_Re_{int(reynolds_number):d}_L_{ref_length:d}"
     config = SimulationConfig(reynolds_number, ref_length, outdir, cfg)
 
-    logger.info("Running simulation with Re=%.0e, L=%d, nu=%.2e, U=%s", 
-                reynolds_number, ref_length, config.kinematic_viscosity, config.maximal_velocity)
+    # Calculate derived stability parameters for logging
+    nu_lb = config.kinematic_viscosity
+    omega = 1.0 / (3.0 * nu_lb + 0.5)
+    tau = 1.0 / omega
+    u_lb = config.maximal_velocity
+
+    logger.info("Running simulation with Re=%.0e, L=%d", reynolds_number, ref_length)
+    logger.info("  -> Lattice Viscosity (nu_lb): %.6f", nu_lb)
+    logger.info("  -> Lattice Velocity (u_lb):   %.4f (Check < 0.1 for Ma < 0.1)", u_lb)
+    logger.info("  -> Relaxation Time (tau):     %.4f (Check > 0.5 for stability)", tau)
+    logger.info("  -> Omega:                     %.4f", omega)
+
+    if u_lb > 0.1:
+        logger.warning("  !! WARNING: u_lb > 0.1. Compressibility errors may be significant.")
+    if tau < 0.51:
+        logger.warning("  !! WARNING: tau < 0.51. Simulation may be unstable.")
 
     # Step 2) Defensive memory check
     domain_size = config.domain_size

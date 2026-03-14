@@ -12,6 +12,11 @@ Quick start (Windows)
   - Run a single reference length from CLI: python ship-wake\run.py --config config.json --ref 5
   - Dry-run (validate plan without executing): python ship-wake\run.py --config config.json --dry-run
 
+Key Derived Parameters to Watch
+When reviewing logs or `config_used.json`, check these values to ensure stability and accuracy:
+- **Lattice Velocity ($u_{lb}$)**: Should be < 0.1. If higher, the Mach number is too large, and compressibility errors (fictitious density waves) will pollute the result.
+- **Relaxation Time ($\tau$ or Tau)**: Should be > 0.5 (ideally > 0.51). If $\tau \to 0.5$, the viscosity is too low for the mesh resolution, leading to numerical explosion. Increase resolution ($L$) to fix.
+
 Notes about CLI arguments
 - The CLI arguments in this tool are lightweight placeholders:
   - They can override lists provided in the config (e.g., --re or --ref).
