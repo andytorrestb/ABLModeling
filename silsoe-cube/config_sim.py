@@ -15,7 +15,8 @@ def load_config(path):
     required_sections = {
         'simulation': ['n_time_steps', 'output_interval', 'vel_video_fps', 'vort_video_fps', 'reynolds_list', 'ref_length_list'],
         'domain': ['maximal_velocity', 'initial_velocity', 'mult'],
-        'physical': ['L_phy', 'nu_phy']
+        'physical': ['L_phy', 'nu_phy'],
+        'geometry': []  # validation of specific geometry keys can happen in geometry module
     }
 
     for section, keys in required_sections.items():
@@ -30,28 +31,18 @@ def load_config(path):
 
     return cfg
 
-# @dataclass
-# class SimulationConfig:
-#     reynolds_number: float
-#     reference_length: int
-#     outdir: str
-#     cfg: dict
-
-#     @classmethod
-#     def from_cfg(cls, re, L, cfg, outdir):
-#         outdir = outdir or f"output_Re_{int(re)}_L_{L}"
-#         os.makedirs(outdir, exist_ok=True)
-#         return cls(re, L, outdir, cfg)
-    
 
 class SimulationConfig:
     def __init__(self, reynolds_number, reference_length, outdir, cfg):
         sim = cfg['simulation']
         dom = cfg['domain']
+        geo = cfg.get('geometry', {})
 
         # Basic physical and domain parameters
         self.reference_length = reference_length
         self.maximal_velocity = dom['maximal_velocity']
+        self.geometry = geo
+
         self.reynolds_number = reynolds_number
         self.kinematic_viscosity = (self.reference_length * self.maximal_velocity) / self.reynolds_number
         self.initial_velocity = tuple(dom['initial_velocity'])

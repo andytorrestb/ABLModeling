@@ -18,6 +18,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 from config_sim import SimulationConfig
+from geometry import GeometryFactory
 
 # We only import the function we actually use now
 from postprocessing import save_velocity_slices_npz
@@ -140,17 +141,13 @@ except Exception:
         return func
 
 
-def set_ship(x, y, z, config, *_):
-    mid = (int(0.15 * config.domain_size[0]), config.domain_size[1] // 2, 0)
-    half_size = (config.reference_length // 2, config.reference_length // 2, config.reference_length // 2)
-
-    # Main hull of ship.
-    box_x = (mid[0] - half_size[0] <= x) & (x < mid[0] + half_size[0])
-    box_y = (mid[1] - half_size[1] <= y) & (y < mid[1] + half_size[1])
-    box_z = (0 <= z) & (z < config.reference_length)
-    box = box_x & box_y & box_z
-
-    return box
+def set_geometry_mask(x, y, z, config):
+    """
+    Delegates geometry creation to the GeometryFactory.
+    This replaces the old 'set_ship' hardcoded function.
+    """
+    geometry_handler = GeometryFactory.get_geometry(config)
+    return geometry_handler(x, y, z)
 
 
 def save_video(output_dir, video_filename="output.mp4", fps=10):
@@ -313,7 +310,7 @@ def run_simulation(reynolds_number, ref_length, cfg):
 
     # Apply no-slip to obstacle and floor.
     bh.set_boundary(wall, slice_from_direction('B', dim))
-    bh.set_boundary(NoSlip("obstacle"), mask_callback=lambda x, y, z, *_: set_ship(x, y, z, config))
+    bh.set_boundary(NoSlip("obstacle"), mask_callback=lambda x, y, z, *_: set_geometry_mask(x, y, z, config))
 
     # Step 7) Run the simulation
     # print(f'Running simulation for Re={reynolds_number:.0e}, output to {config.outdir}')

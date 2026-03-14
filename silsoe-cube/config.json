@@ -18,10 +18,10 @@
     "initial_velocity": [0.1, 0, 0]
   },
   "geometry": {
-    "hull_multiplier": 5,
-    "back_multiplier": 2,
-    "nose_slope": 0.1667,
-    "box_height_start": 0.7,
-    "box_height_end": 1.2
+    "type": "cube",
+    "x_position_factor": 0.15,
+    "length_x_factor": 1.0,
+    "length_y_factor": 1.0,
+    "length_z_factor": 1.0
   }
 }
