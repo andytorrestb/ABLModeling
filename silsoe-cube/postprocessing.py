@@ -92,26 +92,23 @@ def plot_vorticity_slices(z_slice, y_slice, time_step, outdir):
     plt.close(fig)
 
 
-def _compute_slice_indices(domain_size, z_ratio=0.1):
+def compute_slice_indices(domain_size, z_ratio=0.1):
     """Helper to compute z- and y-slice indices with simple clamping."""
     nx, ny, nz = int(domain_size[0]), int(domain_size[1]), int(domain_size[2])
     z_idx = max(0, min(nz - 1, int(z_ratio * nz)))
     y_idx = max(0, min(ny - 1, int(ny / 2)))
     return y_idx, z_idx
 
-def save_velocity_slices_npz(vel, domain_size, time_step, config):
+def save_velocity_slices_npz(z_slice, y_slice, y_idx, z_idx, time_step, config):
     """
     Runtime function: Saves compressed slices.
     called from silsoe_cube.py
+    
+    z_slice: (nx, ny, 2) array [u, v]
+    y_slice: (nx, nz, 2) array [u, w]
     """
-    nx, ny, nz, _ = vel.shape
-    y_idx, z_idx = _compute_slice_indices(domain_size)
-
     out_dir = os.path.join(config.outdir, "slice_data")
     os.makedirs(out_dir, exist_ok=True)
-
-    z_slice = vel[:, :, z_idx, :2]           # (nx, ny, 2) -> u,v
-    y_slice = vel[:, y_idx, :, :][:, :, [0, 2]]  # (nx, nz, 2) -> u,w
 
     npz_path = os.path.join(out_dir, f"vel_slices_t{int(time_step):06d}.npz")
     np.savez_compressed(
@@ -123,7 +120,7 @@ def save_velocity_slices_npz(vel, domain_size, time_step, config):
         y_index=int(y_idx),
         z_index=int(z_idx),
         step=int(time_step),
-        domain_size=np.array(domain_size, dtype=int),
+        domain_size=np.array(config.domain_size, dtype=int),
     )
     return npz_path
 

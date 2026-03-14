@@ -27,7 +27,7 @@ from config_sim import SimulationConfig
 from geometry import GeometryFactory
 
 # We only import the function we actually use now
-from postprocessing import save_velocity_slices_npz
+from postprocessing import save_velocity_slices_npz, compute_slice_indices
 #     """Load and validate required keys from JSON config file."""
 #     try:
 #         with open(path, 'r', encoding='utf-8') as f:
@@ -363,17 +363,70 @@ def run_simulation(reynolds_number, ref_length, cfg):
             if step % config.output_interval == 0:
                 t_export_start = time.perf_counter()
                 
-                # Gather once and reuse for plotting/saving
-                # Technically part of export cost, though gather is heavy
-                vel = dh.gather_array('velField')
-                
-                # Use lightweight binary output instead of slow plotting/CSV
+                # --- MEMORY-EFFICIENT SLICING ---
+                # Avoid gathering full 3D field to host RAM.
+                # Extract only necessary 2D planes directly from dh.
                 try:
-                    # Save compressed slices (u,v,w components on key planes)
-                    save_velocity_slices_npz(vel, domain_size, step, config)
+                    # Calculate indices
+                    y_idx, z_idx = compute_slice_indices(config.domain_size)
+                    
+                    # Assume single-block (standard for this repo)
+                    # Handle Ghost Layers (GL) - pystencils usually has 1 GL by default
+                    gl = dh.ghost_layers if hasattr(dh, 'ghost_layers') and dh.ghost_layers is not None else 1
+                    sl_res = slice(gl, -gl) if gl > 0 else slice(None)
+
+                    is_gpu = (dh.default_target == ps.Target.GPU)
+                    
+                    z_slice = None
+                    y_slice = None
+
+                    if is_gpu:
+                        # --- GPU Path ---
+                        try:
+                            import cupy as cp
+                        except ImportError:
+                            logger.error("GPU target active but cupy not found for slicing.")
+                            raise
+
+                        # Access first block's GPU array
+                        if not dh.gpu_arrays:
+                             raise RuntimeError("dh.gpu_arrays is empty but target is GPU")
+                        gpu_arr = next(iter(dh.gpu_arrays.values()))
+                        
+                        # Slicing on GPU
+                        # array shape: (nx+2gl, ny+2gl, nz+2gl, components)
+                        z_mem = z_idx + gl
+                        y_mem = y_idx + gl
+                        
+                        # z-cut: xy plane
+                        z_cut_gpu = gpu_arr[sl_res, sl_res, z_mem, :2] 
+                        z_slice = cp.asnumpy(z_cut_gpu)
+                        
+                        # y-cut: xz plane
+                        y_cut_gpu = gpu_arr[sl_res, y_mem, sl_res, :]
+                        y_slice = cp.asnumpy(y_cut_gpu[..., [0, 2]])
+                        
+                    else:
+                        # --- CPU Path ---
+                        if not dh.cpu_arrays:
+                             raise RuntimeError("dh.cpu_arrays is empty")
+                        cpu_arr = next(iter(dh.cpu_arrays.values()))
+                        
+                        z_mem = z_idx + gl
+                        y_mem = y_idx + gl
+                        
+                        z_slice = cpu_arr[sl_res, sl_res, z_mem, :2].copy()
+                        y_cut = cpu_arr[sl_res, y_mem, sl_res, :]
+                        y_slice = y_cut[..., [0, 2]].copy()
+
+                    # Save compressed slices
+                    save_velocity_slices_npz(z_slice, y_slice, y_idx, z_idx, step, config)
                     logger.debug("Saved slices for step %d", step)
+
                 except Exception as e:
                     logger.warning("Slice save failed at step %s: %s", step, e)
+                    import traceback
+                    logger.debug(traceback.format_exc())
                     
                 # Optional: Log scalar metrics to a simple CSV (append mode)
                 try:
