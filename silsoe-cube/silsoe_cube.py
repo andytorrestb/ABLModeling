@@ -1,7 +1,3 @@
-# Load configuration
-# import json
-# from logging import config
-# from venv import logger
 import pystencils as ps
 from lbmpy.session import (
     LBStencil, Stencil, LBMConfig, Method, create_lb_method,
@@ -19,84 +15,11 @@ import json
 import logging
 logger = logging.getLogger(__name__)
 
-import json
-import logging
-logger = logging.getLogger(__name__)
-
 from config_sim import SimulationConfig
 from geometry import GeometryFactory
 
 # We only import the function we actually use now
 from postprocessing import save_velocity_slices_npz, compute_slice_indices
-#     """Load and validate required keys from JSON config file."""
-#     try:
-#         with open(path, 'r', encoding='utf-8') as f:
-#             cfg = json.load(f)
-#     except FileNotFoundError:
-#         raise FileNotFoundError(f"Configuration file '{path}' not found. Please create it.")
-#     except json.JSONDecodeError as e:
-#         raise ValueError(f"Invalid JSON in '{path}': {e}")
-
-#     # Minimal required sections and keys - extend as needed
-#     required_sections = {
-#         'simulation': ['n_time_steps', 'output_interval', 'vel_video_fps', 'vort_video_fps', 'reynolds_list', 'ref_length_list'],
-#         'domain': ['maximal_velocity', 'initial_velocity', 'mult'],
-#         'physical': ['L_phy', 'nu_phy']
-#     }
-
-#     for section, keys in required_sections.items():
-#         if section not in cfg:
-#             raise KeyError(f"Config missing required section '{section}'.")
-#         for k in keys:
-#             if k not in cfg[section]:
-#                 raise KeyError(f"Config section '{section}' missing required key '{k}'.")
-
-#     # Basic type checks (lightweight)
-#     if not isinstance(cfg['domain']['initial_velocity'], (list, tuple)) or len(cfg['domain']['initial_velocity']) != 3:
-#         raise TypeError("domain.initial_velocity must be a list/tuple of length 3.")
-
-#     return cfg
-
-# class SimulationConfig:
-#     def __init__(self, reynolds_number, reference_length, outdir, cfg):
-#         # cfg is the config dict loaded by load_config
-#         sim = cfg['simulation']
-#         dom = cfg['domain']
-
-#         self.reference_length = reference_length
-#         self.maximal_velocity = dom['maximal_velocity']
-#         self.reynolds_number = reynolds_number
-#         self.kinematic_viscosity = (self.reference_length * self.maximal_velocity) / self.reynolds_number
-#         self.initial_velocity = tuple(dom['initial_velocity'])
-
-#         self.mult = dom['mult']
-#         self.domain_size = (
-#             int(self.reference_length * 5 * self.mult),
-#             int(self.reference_length * self.mult),
-#             int(self.reference_length * 0.5 * self.mult)
-#         )
-#         self.dim = len(self.domain_size)
-
-#         self.n_time_steps = sim['n_time_steps']
-#         self.output_interval = sim['output_interval']
-#         self.vel_video_fps = sim['vel_video_fps']
-#         self.vort_video_fps = sim['vort_video_fps']
-
-#         self.outdir = outdir
-#         os.makedirs(self.outdir, exist_ok=True)
-
-# Update set_ship to accept config
-# # filepath: c:\Users\andy9\Dev\LBM-BEM\ship-wake\shipwake_3D.py
-# def set_ship(x, y, z, config, *_):
-#     geo = config_data['geometry']
-#     mid = (int(0.15 * config.domain_size[0]), config.domain_size[1] // 2, 0)
-#     half_size = (config.reference_length // 2, config.reference_length // 2, config.reference_length // 2)
-    
-#     # Main hull of ship
-#     ship_hull_x = (mid[0] <= x) & (x < mid[0] + geo['hull_multiplier'] * config.reference_length)
-# #     # ... (similarly update other sections with geo values)
-    
-#     return ship_hull | ship_back | ship_nose | box
 
 # -------------------------
 # Memory probing helper
@@ -182,14 +105,148 @@ def save_video(output_dir, video_filename="output.mp4", fps=10):
     # print(f"Video saved as {video_path}")
 
 
-def timeloop(timeSteps, bh, dh, kernel):
-    for i in range(timeSteps):
-        bh()
-        dh.run_kernel(kernel)
-        dh.swap("src", "dst")
+
+class LBMSolver:
+    def __init__(self, config):
+        self.config = config
+        self.stencil = LBStencil(Stencil.D3Q27)
+        self.dh = None
+        self.method = None
+        self.kernel_init = None
+        self.kernel_update = None
+        self.bh = None
+        
+        self._setup_data_handling()
+        self._setup_method()
+        self._compile_kernels()
+        self._setup_boundaries()
+        self._run_initialization()
+
+    def _setup_data_handling(self):
+        with MemProbe("create_data_handling"):
+            # Choose data handling default target/device based on config
+            dh_target = ps.Target.CPU
+            if getattr(self.config, 'kernel_target', None) and str(self.config.kernel_target).lower() == 'gpu':
+                dh_target = ps.Target.GPU
+            self.dh = ps.create_data_handling(
+                domain_size=self.config.domain_size,
+                periodicity=(False, False),
+                default_target=dh_target,
+                device_number=getattr(self.config, 'gpu_device', None)
+            )
+
+        with MemProbe("add_arrays_and_fill"):
+            self.src = self.dh.add_array('src', values_per_cell=len(self.stencil), alignment=True)
+            self.dh.fill('src', 0.0, ghost_layers=True)
+            self.dst = self.dh.add_array('dst', values_per_cell=len(self.stencil), alignment=True)
+            self.dh.fill('dst', 0.0, ghost_layers=True)
+            self.velField = self.dh.add_array('velField', values_per_cell=self.dh.dim, alignment=True)
+            self.dh.fill('velField', 0.0, ghost_layers=True)
+
+        try:
+            logger.debug("Approx src nvytes: %s", getattr(self.src, 'nbytes', 'n/a'))
+        except Exception:
+            pass
+
+    def _setup_method(self):
+        with MemProbe("create_lb_model"):
+            omega = relaxation_rate_from_lattice_viscosity(self.config.kinematic_viscosity)
+            self.lbm_config = LBMConfig(stencil=Stencil.D3Q27, method=Method.CUMULANT, relaxation_rate=omega,
+                                compressible=True,
+                                output={'velocity': self.velField}, kernel_type='stream_pull_collide')
+
+            self.method = create_lb_method(lbm_config=self.lbm_config)
+
+    def _get_backend_and_target(self):
+        # Allow overriding target via config (simulation.kernel_target)
+        target_override = None
+        try:
+            if getattr(self.config, 'kernel_target', None):
+                kt = str(self.config.kernel_target).lower()
+                if kt == 'cpu':
+                    target_override = ps.Target.CPU
+                elif kt == 'gpu':
+                    target_override = ps.Target.GPU
+        except Exception:
+            target_override = None
+
+        target = target_override or self.dh.default_target
+        backend = ps.Backend.CUDA if target == ps.Target.GPU else ps.Backend.C
+        return target, backend
+
+    def _compile_kernels(self):
+        target, backend = self._get_backend_and_target()
+
+        # Initialization Kernel
+        init = pdf_initialization_assignments(self.method, 1.0, self.config.initial_velocity, self.src.center_vector)
+        with MemProbe("kernel_init_compile"):
+            ast_init = ps.create_kernel(init, target=target, backend=backend)
+            self.kernel_init = ast_init.compile()
+
+        # Update Kernel
+        lbm_optimisation = LBMOptimisation(symbolic_field=self.src, symbolic_temporary_field=self.dst)
+        update = create_lb_update_rule(lb_method=self.method,
+                                    lbm_config=self.lbm_config,
+                                    lbm_optimisation=lbm_optimisation)
+
+        with MemProbe("kernel_update_compile"):
+            ast_kernel = ps.create_kernel(
+                update,
+                target=target,
+                backend=backend,
+                cpu_openmp=getattr(self.config, 'cpu_openmp', False)
+            )
+            self.kernel_update = ast_kernel.compile()
+
+    def _setup_boundaries(self):
+        self.bh = LatticeBoltzmannBoundaryHandling(self.method, self.dh, 'src', name="bh")
+
+        wall = NoSlip("wall")
+        inflow = UBB(self.config.initial_velocity)
+        outflow = ExtrapolationOutflow(self.stencil[4], self.method)
+
+        def get_boundary_obj(b_type, direction_label):
+            b_type = b_type.lower()
+            if b_type == 'noslip':
+                return wall
+            elif b_type == 'inflow':
+                return inflow
+            elif b_type == 'outflow':
+                return outflow
+            elif b_type == 'freeslip':
+                normals = {
+                    'N': (0, 1, 0), 'S': (0, -1, 0),
+                    'T': (0, 0, 1), 'B': (0, 0, -1),
+                    'E': (1, 0, 0), 'W': (-1, 0, 0)
+                }
+                if direction_label in normals:
+                    return FreeSlip(self.method.stencil, normal_direction=normals[direction_label], name=f"freeSlip_{direction_label}")
+                else:
+                    logger.warning("Unknown direction %s for FreeSlip, defaulting to NoSlip", direction_label)
+                    return wall
+            else:
+                logger.warning("Unknown boundary type %s, defaulting to NoSlip", b_type)
+                return wall
+
+        # Apply BCs from configuration
+        dim = self.dh.dim
+        for direction_label, b_type in self.config.boundary_conditions.items():
+            boundary_obj = get_boundary_obj(b_type, direction_label)
+            self.bh.set_boundary(boundary_obj, slice_from_direction(direction_label, dim))
+
+        # Apply no-slip to obstacle
+        self.bh.set_boundary(NoSlip("obstacle"), mask_callback=lambda x, y, z, *_: set_geometry_mask(x, y, z, self.config))
+
+    def _run_initialization(self):
+         self.dh.run_kernel(self.kernel_init)
+
+    def step(self):
+        self.bh()
+        self.dh.run_kernel(self.kernel_update)
+        self.dh.swap("src", "dst")
+
 
 def run_simulation(reynolds_number, ref_length, cfg):
-
     # Step 1) Create output directory for specific configuration
     outdir = f"output_Re_{int(reynolds_number):d}_L_{ref_length:d}"
     config = SimulationConfig(reynolds_number, ref_length, outdir, cfg)
@@ -198,7 +255,6 @@ def run_simulation(reynolds_number, ref_length, cfg):
                 reynolds_number, ref_length, config.kinematic_viscosity, config.maximal_velocity)
 
     # Step 2) Defensive memory check
-    # Estimate memory: domain_size * arrays * dtype (float64=8 bytes)
     domain_size = config.domain_size
     n_cells = domain_size[0] * domain_size[1] * domain_size[2]
     n_arrays = 3  # src, dst, velField
@@ -213,120 +269,10 @@ def run_simulation(reynolds_number, ref_length, cfg):
         logger.info("Memory check passed for L=%d, Re=%.0e: %.2f GB used.", 
                     ref_length, reynolds_number, estimated_mem_gb)
 
-    # Step 3) Define LBM lattice structure to use
-    stencil = LBStencil(Stencil.D3Q27)
-    
-    
-    # Step 4) : Initialize data array for the simulation.
-    with MemProbe("create_data_handling"):
-        # Choose data handling default target/device based on config
-        dh_target = ps.Target.CPU
-        if getattr(config, 'kernel_target', None) and str(config.kernel_target).lower() == 'gpu':
-            dh_target = ps.Target.GPU
-        dh = ps.create_data_handling(
-            domain_size=domain_size,
-            periodicity=(False, False),
-            default_target=dh_target,
-            device_number=getattr(config, 'gpu_device', None)
-        )
+    # Step 3) Initialize Solver
+    solver = LBMSolver(config)
 
-    with MemProbe("add_arrays_and_fill"):
-        src = dh.add_array('src', values_per_cell=len(stencil), alignment=True)
-        dh.fill('src', 0.0, ghost_layers=True)
-        dst = dh.add_array('dst', values_per_cell=len(stencil), alignment=True)
-        dh.fill('dst', 0.0, ghost_layers=True)
-        velField = dh.add_array('velField', values_per_cell=dh.dim, alignment=True)
-        dh.fill('velField', 0.0, ghost_layers=True)
-
-    try:
-        logger.debug("Approx src nvytes: %s", getattr(src, 'nbytes', 'n/a'))
-    except Exception:
-        pass
-
-    # Step 5) Define LBM models and parameters.
-    with MemProbe("create_lb_model"):
-        omega = relaxation_rate_from_lattice_viscosity(config.kinematic_viscosity)
-        dim = config.dim
-        lbm_config = LBMConfig(stencil=Stencil.D3Q27, method=Method.CUMULANT, relaxation_rate=omega,
-                            compressible=True,
-                            output={'velocity': velField}, kernel_type='stream_pull_collide')
-
-        method = create_lb_method(lbm_config=lbm_config)
-    # print(method)  
-
-    init = pdf_initialization_assignments(method, 1.0, config.initial_velocity, src.center_vector)
-
-    with MemProbe("kernel_init_compile_and_run"):
-        # Allow overriding target via config (simulation.kernel_target)
-        # Accept values: None/"default" -> use dh.default_target; "cpu" -> ps.Target.CPU; "gpu" -> ps.Target.GPU
-        target_override = None
-        try:
-            if getattr(config, 'kernel_target', None):
-                kt = str(config.kernel_target).lower()
-                if kt == 'cpu':
-                    target_override = ps.Target.CPU
-                elif kt == 'gpu':
-                    target_override = ps.Target.GPU
-                # Other targets could be added here when supported
-        except Exception:
-            target_override = None
-
-        # Backend: use CUDA when on GPU, else C
-        backend = ps.Backend.CUDA if (target_override or dh.default_target) == ps.Target.GPU else ps.Backend.C
-
-        ast_init = ps.create_kernel(
-            init,
-            target=(target_override or dh.default_target),
-            backend=backend
-        )
-        kernel_init = ast_init.compile()
-        dh.run_kernel(kernel_init)
-
-    lbm_optimisation = LBMOptimisation(symbolic_field=src, symbolic_temporary_field=dst)
-    update = create_lb_update_rule(lb_method=method,
-                                lbm_config=lbm_config,
-                                lbm_optimisation=lbm_optimisation)
-
-    with MemProbe("kernel_update_compile_and_run"):
-        backend = ps.Backend.CUDA if (target_override or dh.default_target) == ps.Target.GPU else ps.Backend.C
-        ast_kernel = ps.create_kernel(
-            update,
-            target=(target_override or dh.default_target),
-            backend=backend,
-            cpu_openmp=getattr(config, 'cpu_openmp', False)
-        )
-        kernel = ast_kernel.compile()
-
-    # Step 6) Set Boundary Conditions
-    bh = LatticeBoltzmannBoundaryHandling(method, dh, 'src', name="bh")
-
-    inflow = UBB(config.initial_velocity)
-    outflow = ExtrapolationOutflow(stencil[4], method)
-    wall = NoSlip("wall")
-    # Free-slip boundaries require the stencil and a normal direction per face.
-    # Create one instance per axis-aligned face with its outward normal.
-    freeSlip_N = FreeSlip(method.stencil, normal_direction=(0, 1, 0), name="freeSlip_N")   # +Y (North)
-    freeSlip_S = FreeSlip(method.stencil, normal_direction=(0, -1, 0), name="freeSlip_S")  # -Y (South)
-    freeSlip_T = FreeSlip(method.stencil, normal_direction=(0, 0, 1), name="freeSlip_T")   # +Z (Top)
-
-    bh.set_boundary(inflow, slice_from_direction('W', dim))
-    bh.set_boundary(outflow, slice_from_direction('E', dim))
-
-    # Apply free-slip on North, South, and Top faces
-    bh.set_boundary(freeSlip_N, slice_from_direction('N', dim))
-    bh.set_boundary(freeSlip_S, slice_from_direction('S', dim))
-    bh.set_boundary(freeSlip_T, slice_from_direction('T', dim))
-
-    # Apply no-slip to obstacle and floor.
-    bh.set_boundary(wall, slice_from_direction('B', dim))
-    bh.set_boundary(NoSlip("obstacle"), mask_callback=lambda x, y, z, *_: set_geometry_mask(x, y, z, config))
-
-    # Step 7) Run the simulation
-    # print(f'Running simulation for Re={reynolds_number:.0e}, output to {config.outdir}')
-    t0 = time.time()
-    logger.info("Running simulation for Re=%s, output to %s", reynolds_number, config.outdir)
-    
-    # Save provenance: dump the actual config used to disk
+    # Step 4) Save config used
     with open(os.path.join(config.outdir, "config_used.json"), 'w') as f:
         # Reconstruct a dict for JSON dumping
         cfg_dump = {
@@ -353,29 +299,31 @@ def run_simulation(reynolds_number, ref_length, cfg):
     solver_time = 0.0
     export_time = 0.0
     
+    t0 = time.time() # Start whole timer
+
     with MemProbe("main_simulation_loop"):
         for step in range(1, config.n_time_steps + 1):
             
             t_solver_start = time.perf_counter()
-            timeloop(1, bh, dh, kernel)
+            solver.step()
             solver_time += (time.perf_counter() - t_solver_start)
             
             if step % config.output_interval == 0:
                 t_export_start = time.perf_counter()
                 
                 # --- MEMORY-EFFICIENT SLICING ---
-                # Avoid gathering full 3D field to host RAM.
-                # Extract only necessary 2D planes directly from dh.
                 try:
+                    dh = solver.dh # Access data handling from solver
+                    
                     # Calculate indices
                     y_idx, z_idx = compute_slice_indices(config.domain_size)
                     
                     # Assume single-block (standard for this repo)
-                    # Handle Ghost Layers (GL) - pystencils usually has 1 GL by default
                     gl = dh.ghost_layers if hasattr(dh, 'ghost_layers') and dh.ghost_layers is not None else 1
                     sl_res = slice(gl, -gl) if gl > 0 else slice(None)
 
                     is_gpu = (dh.default_target == ps.Target.GPU)
+
                     
                     z_slice = None
                     y_slice = None

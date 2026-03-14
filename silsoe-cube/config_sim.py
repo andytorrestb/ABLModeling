@@ -16,7 +16,8 @@ def load_config(path):
         'simulation': ['n_time_steps', 'output_interval', 'vel_video_fps', 'vort_video_fps', 'reynolds_list', 'ref_length_list'],
         'domain': ['maximal_velocity', 'initial_velocity', 'mult'],
         'physical': ['L_phy', 'nu_phy'],
-        'geometry': []  # validation of specific geometry keys can happen in geometry module
+        'geometry': [],  # validation of specific geometry keys can happen in geometry module
+        'boundary_conditions': ['W', 'E', 'N', 'S', 'T', 'B'] 
     }
 
     for section, keys in required_sections.items():
@@ -42,6 +43,7 @@ class SimulationConfig:
         self.reference_length = reference_length
         self.maximal_velocity = dom['maximal_velocity']
         self.geometry = geo
+        self.boundary_conditions = cfg.get('boundary_conditions', {})
 
         self.reynolds_number = reynolds_number
         self.kinematic_viscosity = (self.reference_length * self.maximal_velocity) / self.reynolds_number

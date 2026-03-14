@@ -23,5 +23,13 @@
     "length_x_factor": 1.0,
     "length_y_factor": 1.0,
     "length_z_factor": 1.0
+  },
+  "boundary_conditions": {
+    "W": "inflow",
+    "E": "outflow",
+    "N": "freeslip",
+    "S": "freeslip",
+    "T": "freeslip",
+    "B": "freeslip"
   }
 }
