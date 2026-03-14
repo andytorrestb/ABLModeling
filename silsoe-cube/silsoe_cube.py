@@ -236,6 +236,9 @@ class LBMSolver:
 
         wall = NoSlip("wall")
         inflow = UBB(self.config.initial_velocity)
+        
+        # stencil[4] corresponds to the standard "East" / Positive-X direction in D3Q27
+        # This aligns with the domain outflow boundary.
         outflow = ExtrapolationOutflow(self.stencil[4], self.method)
 
         def get_boundary_obj(b_type, direction_label):

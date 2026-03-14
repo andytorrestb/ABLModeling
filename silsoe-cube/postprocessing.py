@@ -8,6 +8,17 @@ import argparse
 import sys
 import matplotlib.pyplot as plotting  # Standard matplotlib
 
+# ==============================================================================
+#                               COMPONENT ALIASING
+# ==============================================================================
+# The D3Q27 lattice velocity moments are mapped as follows:
+#   Index 0 -> u (Velocity X-component / Streamwise)
+#   Index 1 -> v (Velocity Y-component / Vertical)
+#   Index 2 -> w (Velocity Z-component / Spanwise)
+#
+# Slicing operations often extract subsets, e.g., [:2] means (u, v).
+# ==============================================================================
+
 # Try to use lbmpy plotting if available, else standard fallback
 try:
     # If lbmpy.session is imported, it might set 'plt', but we want explicit control
