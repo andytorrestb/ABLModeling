@@ -2,7 +2,13 @@
 # import json
 # from logging import config
 # from venv import logger
-from lbmpy.session import *
+import pystencils as ps
+from lbmpy.session import (
+    LBStencil, Stencil, LBMConfig, Method, create_lb_method,
+    create_lb_update_rule, LBMOptimisation, LatticeBoltzmannBoundaryHandling,
+    UBB, NoSlip, ExtrapolationOutflow, FreeSlip, slice_from_direction
+)
+
 from lbmpy.relaxationrates import relaxation_rate_from_lattice_viscosity
 from lbmpy.macroscopic_value_kernels import pdf_initialization_assignments
 import numpy as np
