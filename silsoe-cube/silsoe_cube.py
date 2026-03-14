@@ -192,6 +192,8 @@ class LBMSolver:
 
     def _setup_method(self):
         with MemProbe("create_lb_model"):
+            # Relaxation parameter 'omega' is related to kinematic viscosity:
+            # omega = 1 / (3 * nu_lattice + 0.5)
             omega = relaxation_rate_from_lattice_viscosity(self.config.kinematic_viscosity)
             self.lbm_config = LBMConfig(stencil=Stencil.D3Q27, method=Method.CUMULANT, relaxation_rate=omega,
                                 compressible=True,
@@ -347,13 +349,13 @@ def run_simulation(reynolds_number, ref_length, cfg):
     t0 = time.time() # Start whole timer
 
     with MemProbe("main_simulation_loop"):
-        for step in range(1, config.n_time_steps + 1):
+        for time_step in range(1, config.n_time_steps + 1):
             
             t_solver_start = time.perf_counter()
             solver.step()
             solver_time += (time.perf_counter() - t_solver_start)
             
-            if step % config.output_interval == 0:
+            if time_step % config.output_interval == 0:
                 t_export_start = time.perf_counter()
                 
                 # --- MEMORY-EFFICIENT SLICING ---
@@ -413,11 +415,11 @@ def run_simulation(reynolds_number, ref_length, cfg):
                         y_slice = y_cut[..., [0, 2]].copy()
 
                     # Save compressed slices
-                    save_velocity_slices_npz(z_slice, y_slice, y_idx, z_idx, step, config)
-                    logger.debug("Saved slices for step %d", step)
+                    save_velocity_slices_npz(z_slice, y_slice, y_idx, z_idx, time_step, config)
+                    logger.debug("Saved slices for time_step %d", time_step)
 
                 except Exception as e:
-                    logger.warning("Slice save failed at step %s: %s", step, e)
+                    logger.warning("Slice save failed at time_step %s: %s", time_step, e)
                     import traceback
                     logger.debug(traceback.format_exc())
                     
@@ -428,8 +430,8 @@ def run_simulation(reynolds_number, ref_length, cfg):
                     write_header = not os.path.exists(stats_csv)
                     with open(stats_csv, "a") as f:
                         if write_header:
-                            f.write("step,time_elapsed,max_vel_mag\n")
-                        f.write(f"{step},{time.time()-t0:.4f},0.0\n")
+                            f.write("time_step,time_elapsed,max_vel_mag\n")
+                        f.write(f"{time_step},{time.time()-t0:.4f},0.0\n")
                 except Exception:
                     pass
                 
