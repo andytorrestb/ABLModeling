@@ -13,11 +13,14 @@ import json
 import logging
 logger = logging.getLogger(__name__)
 
+import json
+import logging
+logger = logging.getLogger(__name__)
+
 from config_sim import SimulationConfig
 
-from postprocessing import *
-
-# def load_config(path):
+# We only import the function we actually use now
+from postprocessing import save_velocity_slices_npz
 #     """Load and validate required keys from JSON config file."""
 #     try:
 #         with open(path, 'r', encoding='utf-8') as f:
@@ -182,12 +185,12 @@ def timeloop(timeSteps, bh, dh, kernel):
         dh.run_kernel(kernel)
         dh.swap("src", "dst")
 
-@profile
 def run_simulation(reynolds_number, ref_length, cfg):
 
     # Step 1) Create output directory for specific configuration
     outdir = f"output_Re_{int(reynolds_number):d}_L_{ref_length:d}"
     config = SimulationConfig(reynolds_number, ref_length, outdir, cfg)
+
     print(f"Running simulation with Re={reynolds_number:.0e}, L={ref_length}, nu={config.kinematic_viscosity:.2e}, U={config.maximal_velocity}")
 
     # Step 2) Defensive memory check
@@ -316,22 +319,82 @@ def run_simulation(reynolds_number, ref_length, cfg):
     # print(f'Running simulation for Re={reynolds_number:.0e}, output to {config.outdir}')
     t0 = time.time()
     logger.info("Running simulation for Re=%s, output to %s", reynolds_number, config.outdir)
+    
+    # Save provenance: dump the actual config used to disk
+    with open(os.path.join(config.outdir, "config_used.json"), 'w') as f:
+        # Reconstruct a dict for JSON dumping
+        cfg_dump = {
+            "simulation": {
+                "n_time_steps": config.n_time_steps,
+                "output_interval": config.output_interval,
+                "reynolds_number": config.reynolds_number,
+                "reference_length": config.reference_length,
+                "kernel_target": getattr(config, 'kernel_target', 'default'),
+                "gpu_device": getattr(config, 'gpu_device', None)
+            },
+            "domain": {
+                "domain_size": config.domain_size,
+                "maximal_velocity": config.maximal_velocity,
+                "initial_velocity": config.initial_velocity
+            },
+            "derived": {
+                "kinematic_viscosity": config.kinematic_viscosity
+            }
+        }
+        json.dump(cfg_dump, f, indent=2)
+
+    # Timing counters
+    solver_time = 0.0
+    export_time = 0.0
+    
     with MemProbe("main_simulation_loop"):
         for step in range(1, config.n_time_steps + 1):
+            
+            t_solver_start = time.perf_counter()
             timeloop(1, bh, dh, kernel)
+            solver_time += (time.perf_counter() - t_solver_start)
+            
             if step % config.output_interval == 0:
+                t_export_start = time.perf_counter()
+                
                 # Gather once and reuse for plotting/saving
+                # Technically part of export cost, though gather is heavy
                 vel = dh.gather_array('velField')
-                plot_velocity(vel, domain_size, step, config)
-                plot_vorticity_frame(vel, domain_size, step, config)
-                # Save slice data to CSV for later analysis
+                
+                # Use lightweight binary output instead of slow plotting/CSV
                 try:
-                    save_velocity_slices_csv(vel, domain_size, step, config)
+                    # Save compressed slices (u,v,w components on key planes)
+                    save_velocity_slices_npz(vel, domain_size, step, config)
+                    logger.debug("Saved slices for step %d", step)
                 except Exception as e:
-                    logger.warning("CSV slice save failed at step %s: %s", step, e)
+                    logger.warning("Slice save failed at step %s: %s", step, e)
+                    
+                # Optional: Log scalar metrics to a simple CSV (append mode)
+                try:
+                    stats_csv = os.path.join(config.outdir, "run_stats.csv")
+                    # Check if header needs writing
+                    write_header = not os.path.exists(stats_csv)
+                    with open(stats_csv, "a") as f:
+                        if write_header:
+                            f.write("step,time_elapsed,max_vel_mag\n")
+                        f.write(f"{step},{time.time()-t0:.4f},0.0\n")
+                except Exception:
+                    pass
+                
+                export_time += (time.perf_counter() - t_export_start)
 
     total_time = time.time() - t0
-    logger.info("Simulation completed in %.2fs", total_time)
+    logger.info("Simulation completed in %.2fs (Solver: %.2fs, Export: %.2fs)", total_time, solver_time, export_time)
+    
+    # Save timing stats for post-processing summary
+    with open(os.path.join(config.outdir, "timing_sim.json"), "w") as f:
+        json.dump({
+            "total_simulation_time_sec": total_time,
+            "solver_time_sec": solver_time,
+            "data_export_time_sec": export_time,
+            "initialization_time_sec": max(0, total_time - solver_time - export_time)
+        }, f, indent=2)
+        
     return config
 
 if __name__ == "__main__":
@@ -353,6 +416,6 @@ if __name__ == "__main__":
     for reynolds_number in reynolds_list:
         for ref_length in ref_length_list:
             sim_config = run_simulation(reynolds_number, ref_length, cfg)
-            save_video(sim_config.outdir + '/vel_magnitude_output' , video_filename="vel_magnitude.mp4", fps=sim_config.vel_video_fps)
-            save_video(sim_config.outdir + '/vorticity_output' , video_filename="vorticity.mp4", fps=sim_config.vort_video_fps)
+            # save_video(sim_config.outdir + '/vel_magnitude_output' , video_filename="vel_magnitude.mp4", fps=sim_config.vel_video_fps)
+            # save_video(sim_config.outdir + '/vorticity_output' , video_filename="vorticity.mp4", fps=sim_config.vort_video_fps)
 

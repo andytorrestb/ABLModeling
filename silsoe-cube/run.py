@@ -7,6 +7,10 @@ import time
 
 from config_sim import load_config
 from silsoe_cube import run_simulation  # uses signature run_simulation(re, L, cfg)
+try:
+    from postprocess_case import process_case
+except ImportError:
+    process_case = None
 
 from logging_setup import setup_console_logging, attach_file_logger
 
@@ -17,6 +21,7 @@ def main():
     parser.add_argument("--config", "-c", default="config.json", help="Path to config.json")
     parser.add_argument("--re", type=float, help="Single Reynolds number to run (overrides list in config)")
     parser.add_argument("--ref", type=int, help="Single reference length to run (overrides list in config)")
+    parser.add_argument("--post", action="store_true", help="Run post-processing immediately after simulation")
     parser.add_argument("--dry-run", action="store_true", help="Validate config and show planned runs without executing")
     args = parser.parse_args()
 
@@ -64,9 +69,18 @@ def main():
 
             try:
                 sim_conf = run_simulation(Re, L, cfg)
-                logging.getLogger(__name__).info("Completed case Re=%s L=%s; output directory: %s", Re, L, getattr(sim_conf, "outdir", outdir))
+                out_path = getattr(sim_conf, "outdir", outdir)
+                logging.getLogger(__name__).info("Completed case Re=%s L=%s; output directory: %s", Re, L, out_path)
+                
+                if args.post:
+                    if process_case is None:
+                        logging.getLogger(__name__).warning("Refusing --post because postprocess_case.py failed to import.")
+                    else:
+                        logging.getLogger(__name__).info("Starting post-processing for %s...", out_path)
+                        process_case(out_path)
+                        logging.getLogger(__name__).info("Post-processing complete.")
             except Exception as e:
-                logging.getLogger(__name__).exception("Simulation failed for Re=%s L=%s: %s", Re, L, e)
+                logging.getLogger(__name__).exception("Run failed for Re=%s L=%s: %s", Re, L, e)
 
     total_elapsed = time.time() - start_all
     logging.getLogger(__name__).info("All cases finished in %.2fs", total_elapsed)
