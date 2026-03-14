@@ -205,3 +205,77 @@ def create_video_from_frames(output_dir, image_folder, video_name, fps=20):
     video.release()
     logger.info(f"Video saved to {video_path}")
 
+
+def load_velocity_slices(slice_dir, pattern='vel_slices_t*.npz'):
+    """
+    Load all velocity slice .npz files from a directory.
+    Returns:
+        y_slices: list of (nx, nz, 2) arrays, components (u, w)
+        z_slices: list of (nx, ny, 2) arrays, components (u, v)
+        timesteps: sorted list of integers
+    """
+    files = sorted(glob.glob(os.path.join(slice_dir, pattern)))
+    
+    y_slices = []
+    z_slices = []
+    timesteps = []
+    
+    for fpath in files:
+        with np.load(fpath) as data:
+            # Reconstruct Z-slice (nx, ny, 2)
+            z_u = data['zslice_u']
+            z_v = data['zslice_v']
+            z_slices.append(np.stack([z_u, z_v], axis=-1))
+
+            # Reconstruct Y-slice (nx, nz, 2)
+            y_u = data['yslice_u']
+            y_w = data['yslice_w']
+            y_slices.append(np.stack([y_u, y_w], axis=-1))
+            
+            # Step
+            if 'step' in data:
+                timesteps.append(int(data['step']))
+            else:
+                # Fallback: parse from filename
+                m = re.search(r't(\d+)', os.path.basename(fpath))
+                timesteps.append(int(m.group(1)) if m else len(timesteps))
+                
+    return y_slices, z_slices, timesteps
+
+def load_velocity_slices(slice_dir, pattern='vel_slices_t*.npz'):
+    """
+    Load all velocity slice .npz files from a directory.
+    Returns:
+        y_slices: list of (nx, nz, 2) arrays, components (u, w)
+        z_slices: list of (nx, ny, 2) arrays, components (u, v)
+        timesteps: sorted list of integers
+    """
+    files = sorted(glob.glob(os.path.join(slice_dir, pattern)))
+    
+    y_slices = []
+    z_slices = []
+    timesteps = []
+    
+    for fpath in files:
+        with np.load(fpath) as data:
+            # Reconstruct Z-slice (nx, ny, 2)
+            z_u = data['zslice_u']
+            z_v = data['zslice_v']
+            z_slices.append(np.stack([z_u, z_v], axis=-1))
+
+            # Reconstruct Y-slice (nx, nz, 2)
+            y_u = data['yslice_u']
+            y_w = data['yslice_w']
+            y_slices.append(np.stack([y_u, y_w], axis=-1))
+            
+            # Step
+            if 'step' in data:
+                timesteps.append(int(data['step']))
+            else:
+                try:
+                    m = re.search(r't(\d+)', os.path.basename(fpath))
+                    timesteps.append(int(m.group(1)) if m else len(timesteps))
+                except:
+                    timesteps.append(len(timesteps))
+                
+    return y_slices, z_slices, timesteps
