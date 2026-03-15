@@ -215,15 +215,15 @@ class LBMSolver:
         self.dh.swap("src", "dst")
 
 
-def run_simulation(reynolds_number, ref_length, cfg):
+def run_simulation(reynolds_number, ref_length, cfg, output_dir=None):
     """
     Main entry point for running a case.
     """
     # 1. Prepare Config
-    outdir = f"output_Re_{int(reynolds_number):d}_L_{ref_length:d}"
-    # If outdir is an absolute path or relative, ensure we respect if cfg overrides it? 
-    # For now, stick to legacy logic: folder named by params.
-    # The 'cfg' passed here is a dict.
+    if output_dir:
+        outdir = str(output_dir)
+    else:
+        outdir = f"output_Re_{int(reynolds_number):d}_L_{ref_length:d}"
     
     config = SimulationConfig(reynolds_number, ref_length, outdir, cfg)
 

@@ -27,39 +27,9 @@ def run_single_case_worker(args):
         return True
 
     try:
-        # Update config to include geometry overrides if any?
-        # The cfg passed here is fully resolved.
-        
-        # Override outdir in cfg if needed?
-        # run_simulation takes (re, L, cfg). Inside run_simulation, it reconstructs SimulationConfig and re-calculates outdir?
-        # Let's check run_simulation logic:
-        # outdir = f"output_Re_{int(reynolds_number):d}_L_{ref_length:d}"
-        # config = SimulationConfig(..., outdir=outdir, ...)
-        
-        # This is hardcoded inside run_simulation to use current directory relative path.
-        # We need to change run_simulation (in lbm.py) to respect "outdir" passed or accept explicit outdir.
-        # But run_simulation signature is fixed (re, L, cfg).
-        # We can pass 'output_dir' inside cfg?
-        # config.py reads 'outdir' from argument to SimulationConfig constructor.
-        # But lbm.py:run_simulation calls SimulationConfig constructor with hardcoded path string.
-        
-        # To fix this cleanly without editing lbm.py deeply:
-        # lbm.py run_simulation calculates `outdir = f"output_Re..."`.
-        # This creates it in current working directory.
-        # We usually run from case directory, so CWD is `cases/case_X`.
-        # So "output_Re..." will be inside `cases/case_X`.
-        # That's acceptable for now.
-        
-        # But if we want absolute paths or "results/" subfolder (as planned in Case.get_output_dir), we need to patch lbm.py.
-        # Patching lbm.py run_simulation to respect a passed output directory path would be best.
-        
-        # I'll let lbm.py do its default thing for now (create output_Re... in CWD) 
-        # but change CWD before running worker? No, changing CWD is global.
-        # Worker process? Yes, os.chdir in worker is okay-ish but confusing.
-        
-        # Better: run_simulation returns the config object which has .outdir.
-        sim_conf = run_simulation(re, L, cfg)
-        out_path = sim_conf.outdir # This is what lbm.py decided.
+        # Pass the pre-calculated output directory to the solver
+        sim_conf = run_simulation(re, L, cfg, output_dir=outdir)
+        out_path = sim_conf.outdir
         
         worker_log.info("Simulation finished. Output at: %s", out_path)
         
@@ -105,13 +75,10 @@ class SimulationRunner:
         tasks = []
         for re in reynolds_list:
             for L in ref_length_list:
-                # We can predict the outdir if we know lbm.py logic, or let it run.
-                # Just placeholder outdir for logger setup (lbm.py will create same name)
-                outdir = f"output_Re_{int(re)}_L_{L:d}"
-                # If we run from script, CWD is often case dir.
-                # We should clarify CWD expectation.
+                # Use strict output directory structure from Case
+                outdir = self.case.get_output_dir(re, L)
                 
-                tasks.append((re, L, cfg, outdir, dry_run, effective_do_post))
+                tasks.append((re, L, cfg, str(outdir), dry_run, effective_do_post))
         
         logger.info(f"Planned {len(tasks)} runs with {workers} workers.")
         
