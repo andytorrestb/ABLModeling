@@ -2,3 +2,4 @@ output_*/
 __pycache__/
 venv-abl/
 *.gif
+.venv/
