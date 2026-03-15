@@ -1,55 +1,59 @@
 {
+  "wind_tunnel_scenario": {
+    "cube_height_mm": 150,
+    "tunnel_dims_m": [7.5, 1.85, 1.1],
+    "roughness_z0_mm": 0.42,
+    "cube_height_velocity_ms": 6.4,
+    "placement": {
+      "upstream_dist_H": 8.0,
+      "lateral_centered": true,
+      "grounded": true
+    }
+  },
   "simulation": {
-    "reynolds_list": [100000],
-    "ref_length_list": [11],
-    "n_time_steps": 1000,
-    "output_interval": 50,
-    "vel_video_fps": 20,
-    "vort_video_fps": 20,
-    "kernel_target": "CPU",
-    "run_post_processing": true,
-    "generate_video": true
+    "reynolds_list": [50000],
+    "ref_length_list": [20],
+    "n_time_steps": 2000,
+    "output_interval": 100,
+    "vel_video_fps": 30,
+    "vort_video_fps": 30,
+    "run_post_processing": true
   },
   "profiles": {
     "smoke": {
       "simulation": {
-        "n_time_steps": 10,
-        "output_interval": 5,
-        "run_post_processing": false,
-        "generate_video": false,
-        "reynolds_list": [1000],
-        "ref_length_list": [5]
+        "ref_length_list": [8],
+        "n_time_steps": 200,
+        "output_interval": 20,
+        "run_post_processing": true
       }
     },
     "validation": {
       "simulation": {
-        "n_time_steps": 2000,
-        "output_interval": 100
+        "ref_length_list": [8],
+        "n_time_steps": 5000,
+        "output_interval": 250
+      }
+    },
+    "hpc_validation": {
+      "simulation": {
+        "ref_length_list": [48],
+        "n_time_steps": 20000,
+        "output_interval": 500
       }
     }
   },
-  "physical": {
-    "L_phy": 70,
-    "nu_phy": 0.0000156
-  },
   "domain": {
-    "mult": 5,
-    "maximal_velocity": 0.1,
-    "initial_velocity": [0.1, 0, 0]
-  },
-  "geometry": {
-    "type": "cube",
-    "x_position_factor": 0.15,
-    "length_x_factor": 1.0,
-    "length_y_factor": 1.0,
-    "length_z_factor": 1.0
+    "maximal_velocity": 0.08,
+    "initial_velocity": [0.08, 0, 0],
+    "mult": 1
   },
   "boundary_conditions": {
-    "W": "inflow",
+    "W": "inflow_log_law",
     "E": "outflow",
-    "N": "freeslip",
-    "S": "freeslip",
-    "T": "freeslip",
-    "B": "freeslip"
+    "N": "wall",
+    "S": "wall",
+    "T": "wall",
+    "B": "wall"
   }
 }

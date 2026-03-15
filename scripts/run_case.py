@@ -1,5 +1,10 @@
 import argparse
 import sys
+# Setuptools has to be imported before distutils or cython related imports on Python 3.12+
+try:
+    import setuptools
+except ImportError:
+    pass
 import logging
 from pathlib import Path
 

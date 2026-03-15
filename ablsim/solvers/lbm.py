@@ -8,11 +8,13 @@ from lbmpy.session import (
 from lbmpy.relaxationrates import relaxation_rate_from_lattice_viscosity
 from lbmpy.macroscopic_value_kernels import pdf_initialization_assignments
 import numpy as np
+import sympy as sp
 import os
 import cv2
 import time
 import json
 import logging
+import gc
 logger = logging.getLogger(__name__)
 
 from ablsim.core.config import SimulationConfig
@@ -44,13 +46,17 @@ class MemProbe:
 
     def __enter__(self):
         self.proc = psutil.Process() if psutil else None
-        if tracemalloc:
+        # Only use tracemalloc if debug logging is enabled
+        if tracemalloc and self.log.isEnabledFor(logging.DEBUG):
             try:
                 if not tracemalloc.is_tracing():
                     tracemalloc.start()
                 self.snap_before = tracemalloc.take_snapshot()
             except Exception:
                 self.snap_before = None
+        else:
+            self.snap_before = None
+            
         self.t0 = time.time()
         self.rss_before = self.proc.memory_info().rss if self.proc else None
         if self.rss_before is not None:
@@ -171,20 +177,69 @@ class LBMSolver:
 
     def _setup_boundaries(self):
         self.bh = LatticeBoltzmannBoundaryHandling(self.method, self.dh, 'src', name="bh")
-
+        
         wall = NoSlip("wall")
         inflow = UBB(self.config.initial_velocity)
         outflow = ExtrapolationOutflow(self.stencil[4], self.method)
 
         def get_boundary_obj(b_type, direction_label):
             b_type = b_type.lower()
-            if b_type == 'noslip':
+            
+            if b_type == 'noslip' or b_type == 'wall':
                 return wall
+                
             elif b_type == 'inflow':
                 return inflow
+                
+            elif b_type == 'inflow_log_law':
+                # Log law profile for ABL
+                # u(z) = (u_* / k) * ln((z + z0) / z0)
+                # We define it relative to the reference height velocity
+                
+                # Fetch parameters
+                z0 = getattr(self.config, 'z0_lattice', 0.05)
+                # Reference length is cube height (H) in LU
+                H_lu = self.config.reference_length
+                # Max velocity is the reference velocity at H
+                u_ref = self.config.maximal_velocity
+                
+                # Index 2 is z-coordinate in pystencils
+                # Accessing index_field correctly
+                try:
+                    import pystencils.field
+                    if hasattr(pystencils.field, 'index_field'):
+                        z = pystencils.field.index_field(2)
+                    else:
+                        raise ImportError("pystencils.field.index_field not found")
+                except ImportError:
+                    # Fallback: Construct a field or use uniform if fails
+                    # Simplified approach: Use a callback function for UBB if supported
+                    # or better: Define a symbolic field and rely on structured grid optimization (if available)
+                    
+                    # Attempt simple field creation using ps.fields named 'index_2' which implies dim 2? No.
+                    
+                    # Last resort fallback to avoid crash: Uniform profile at ref height
+                    logger.warning("Could not access pystencils.index_field. Using uniform inlet profile as fallback.")
+                    return UBB((u_ref, 0.0, 0.0))
+                
+                # physical z coordinate proxy (offset by 0.5 for cell center)
+                z_phys = z + 0.5
+                
+                # Formula: u(z) = u_ref * [ ln((z+z0)/z0) / ln((H+z0)/z0) ]
+                # Ensure z approaches 0 doesn't cause singularity if z0 is tiny
+                # This profile applies u_x varying with z, u_y=0, u_z=0
+                
+                numerator = sp.log((z_phys + z0) / z0)
+                denominator = sp.log((H_lu + z0) / z0)
+                
+                u_profile = u_ref * (numerator / denominator)
+                
+                return UBB((u_profile, 0.0, 0.0))
+                
             elif b_type == 'outflow':
                 return outflow
             elif b_type == 'freeslip':
+
                 normals = {
                     'N': (0, 1, 0), 'S': (0, -1, 0),
                     'T': (0, 0, 1), 'B': (0, 0, -1),
@@ -244,7 +299,10 @@ def run_simulation(reynolds_number, ref_length, cfg, output_dir=None):
     # 2. Memory Check
     domain_size = config.domain_size
     n_cells = np.prod(domain_size)
-    estimated_mem_gb = n_cells * 3 * 8 / (1024**3)
+    # Estimate for D3Q27 (27 doubles) * 2 (src/dst) + Velocity (3 doubles)
+    # 57 doubles per cell * 8 bytes
+    bytes_per_cell = 57 * 8 
+    estimated_mem_gb = n_cells * bytes_per_cell / (1024**3)
     max_mem_gb = 32 # Default cap
     if estimated_mem_gb > max_mem_gb:
         logger.warning("Skipping sim: Estimated %.2f GB > %.2f GB", estimated_mem_gb, max_mem_gb)
@@ -364,6 +422,7 @@ def run_simulation(reynolds_number, ref_length, cfg, output_dir=None):
                 except: pass
                 
                 export_time += (time.perf_counter() - t_export_start)
+                gc.collect()
 
     total_time = time.time() - t0
     logger.info("Complete. Total: %.2fs (Solver: %.2fs)", total_time, solver_time)

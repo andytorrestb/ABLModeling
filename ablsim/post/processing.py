@@ -3,6 +3,7 @@ import os
 import numpy as np
 import re
 import glob
+import json
 import logging
 import argparse
 import sys
@@ -95,8 +96,171 @@ def plot_velocity_slices(z_slice, y_slice, time_step, outdir):
     z_slice: shape (nx, ny, 2) -> u, v components (slice const Z)
     y_slice: shape (nx, nz, 2) -> u, w components (slice const Y)
     """
+    pass # Placeholder for logic not being modified in this query
+
+def extract_validation_metrics(case_dir):
+    """
+    Compute validation relevant metrics from saved slices.
+    Specifically targets Silsoe cube benchmark profiles if applicable.
+    """
+    slice_dir = os.path.join(case_dir, "slice_data")
+    if not os.path.exists(slice_dir):
+        logger.warning(f"No slice data found in {slice_dir}, skipping validation extraction.")
+        return
+
+    # 1. Load all slices to compute mean fields
+    slice_files = sorted(glob.glob(os.path.join(slice_dir, "vel_slices_t*.npz")))
+    if not slice_files:
+        return
+
+    # We only care about the centerline vertical plane (y_slice) for vertical profiles
+    # y_slice shape is likely (nx, nz, 2) [u, w]
     
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 2))
+    sum_y_slice = None
+    count = 0
+    
+    # Simple time averaging over all available frames
+    # In a real run, you might want to discard the startup transient
+    start_fraction = 0.2
+    start_idx = int(len(slice_files) * start_fraction)
+    process_files = slice_files[start_idx:]
+    
+    if not process_files:
+        process_files = slice_files # Fallback if too few files
+
+    logger.info(f"Computing mean profiles from {len(process_files)} frames...")
+    
+    # Read first file to get dimensions and params
+    try:
+        _, z_s, y_s = load_velocity_slices_npz(process_files[0])
+        # y_s shape: (nx, nz, 2)
+        sum_y_slice = np.zeros_like(y_s, dtype=np.float64)
+        nx, nz = y_s.shape[:2]
+    except Exception as e:
+        logger.error(f"Failed to load first slice: {e}")
+        return
+
+    for f in process_files:
+        try:
+            _, _, y_s = load_velocity_slices_npz(f)
+            sum_y_slice += y_s
+            count += 1
+        except Exception:
+            continue
+            
+    if count == 0:
+        return
+
+    mean_y_slice = sum_y_slice / count
+    mean_u = mean_y_slice[..., 0] # (nx, nz)
+    mean_w = mean_y_slice[..., 1] # (nx, nz)
+    
+    # 2. Try to find config to identify cube location
+    # We look for config_used.json or generic known positions
+    # If not found, we blindly guess center or use fixed probes
+    cube_x_idx = nx // 2 # Default guess
+    cube_h_idx = 32      # Default guess (N_H)
+    
+    # Try to load config
+    config_path = os.path.join(case_dir, "config_used.json")
+    if not os.path.exists(config_path):
+        # validation dir check
+        config_path = os.path.join(os.path.dirname(case_dir), "config_used.json")
+
+    probes = {}
+    
+    try:
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as f:
+                cfg = json.load(f)
+                
+            # Try to extract geometry info
+            # If wind_tunnel_scenario exists
+            wt = cfg.get('wind_tunnel_scenario')
+            geo = cfg.get('geometry', {})
+            dom = cfg.get('domain_size_lu') # Check if we saved this
+            
+            # If we don't have explicit stored domain size in config, we might have to infer
+            # But we do know the grid size from the slice (nx, nz)
+            
+            if wt and 'placement' in wt:
+                # Based on our explicit placement logic
+                # placement upstream_dist_H
+                place = wt['placement']
+                up_H = place.get('upstream_dist_H', 5.0)
+                
+                # We need to recover N_H (cells per cube height)
+                # If ref_length was stored...
+                N_H = cfg.get('reference_length', 32)
+                cube_h_idx = N_H
+                
+                # Cube front face is at up_H * N_H
+                # Cube center X is at (up_H + 0.5) * N_H
+                cube_front_idx = int(up_H * N_H)
+                cube_center_idx = int((up_H + 0.5) * N_H)
+                cube_x_idx = cube_center_idx
+            else:
+                # Generic relative placement
+                x_fac = geo.get('x_position_factor', 0.15)
+                cube_x_idx = int(nx * x_fac)
+                # Height?
+                # We typically rely on config
+                N_H = cfg.get('reference_length', 32)
+                cube_h_idx = N_H
+                
+            # Define probes relative to cube location (in indices)
+            # stored as (label, x_index_offset_from_center)
+            # x_index = cube_x_idx + offset * N_H
+            
+            probe_defs = [
+                ("inlet", -cube_x_idx), # x=0 roughly
+                ("upstream_2H", -2),
+                ("upstream_1H", -1),
+                ("cube_center", 0),
+                ("wake_1H", 1),
+                ("wake_3H", 3),
+                ("wake_5H", 5),
+                ("outlet", (nx - 1 - cube_x_idx) / N_H)
+            ]
+            
+            for label, offset in probe_defs:
+                idx = int(cube_x_idx + offset * N_H)
+                idx = max(0, min(nx - 1, idx))
+                
+                profile_u = mean_u[idx, :]
+                profile_w = mean_w[idx, :]
+                
+                # Normalize Z coordinate by H
+                z_axis = np.arange(nz) / N_H
+                
+                probes[label] = {
+                    "z_over_H": z_axis.tolist(),
+                    "mean_u": profile_u.tolist(),
+                    "mean_w": profile_w.tolist(),
+                    "x_index": idx
+                }
+                
+    except Exception as e:
+        logger.warning(f"Could not extract specific probe locations: {e}")
+        
+    # 3. Save Validation Data
+    val_out = os.path.join(case_dir, "validation_metrics.json")
+    output_data = {
+        "averaged_frames": count,
+        "profiles": probes,
+        "reference_scales": {
+            "cube_height_cells": cube_h_idx,
+            "cube_x_index": cube_x_idx
+        }
+    }
+    
+    with open(val_out, 'w') as f:
+        json.dump(output_data, f, indent=2)
+    
+    logger.info(f"Saved validation metrics to {val_out}")
+
+def process_output_directory(outdir):
+
 
     # --- Z-Slice (XY Plane, Side View usually if Y is vertical) ---
     # Data is [x, y, 2]

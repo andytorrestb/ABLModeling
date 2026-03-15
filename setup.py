@@ -9,6 +9,8 @@ setup(
         "matplotlib",
         "lbmpy",
         "pystencils",
+        "cython",
+        "setuptools",
         # "opencv-python", # Optional
     ],
 )

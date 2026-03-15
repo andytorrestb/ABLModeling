@@ -4,7 +4,7 @@ import os
 import time
 import json
 import glob
-from ablsim.post.processing import process_output_directory, create_video_from_frames
+from ablsim.post.processing import process_output_directory, create_video_from_frames, extract_validation_metrics
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)-7s %(name)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
@@ -17,6 +17,13 @@ def process_case(case_dir, generate_video=True):
     """
     logger.info(f"Starting post-processing for: {case_dir}")
     t_start_post = time.perf_counter()
+    
+    # 0. Extraction of Validation Metrics (Profiles)
+    # This is non-graphical and fast
+    try:
+        extract_validation_metrics(case_dir)
+    except Exception as e:
+        logger.error(f"Error during validation extraction: {e}")
     
     # 1. Plot generation
     t_start_plot = time.perf_counter()
