@@ -10,6 +10,24 @@
     "run_post_processing": true,
     "generate_video": true
   },
+  "profiles": {
+    "smoke": {
+      "simulation": {
+        "n_time_steps": 10,
+        "output_interval": 5,
+        "run_post_processing": false,
+        "generate_video": false,
+        "reynolds_list": [1000],
+        "ref_length_list": [5]
+      }
+    },
+    "validation": {
+      "simulation": {
+        "n_time_steps": 2000,
+        "output_interval": 100
+      }
+    }
+  },
   "physical": {
     "L_phy": 70,
     "nu_phy": 0.0000156

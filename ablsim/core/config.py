@@ -35,6 +35,20 @@ def load_config(path):
     return cfg
 
 
+def deep_update(base_dict, update_dict):
+    """
+    Recursively update a dictionary.
+    """
+    import copy
+    merged = copy.deepcopy(base_dict)
+    for key, value in update_dict.items():
+        if isinstance(value, dict) and key in merged and isinstance(merged.get(key), dict):
+            merged[key] = deep_update(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
 class SimulationConfig:
     def __init__(self, reynolds_number, reference_length, outdir, cfg):
         sim = cfg.get('simulation', {})
